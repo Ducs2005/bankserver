@@ -3,71 +3,103 @@ package org.example.bank;
 import java.io.*;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.Map;
 import java.util.HashMap;
+import java.util.Map;
 
 public class BankImpl extends UnicastRemoteObject implements BankInterface {
 
-    private BankData data; // chứa users + balances
     private final String FILE_PATH = "data.txt";
 
-    private final Map<String, ClientCallback> callbacks = new HashMap<>();
+    // Lưu dữ liệu trong RAM
+    private Map<String, String> users = new HashMap<>();
+    private Map<String, Double> balances = new HashMap<>();
+
+    private Map<String, ClientCallback> callbacks = new HashMap<>();
 
     public BankImpl() throws RemoteException {
         super();
-        data = loadData();
+        loadData();
 
-        // Trường hợp file trống → tạo user mặc định
-        if (data.users.isEmpty()) {
-            data.users.put("12345", "12345");
-            data.balances.put("12345", 5000.0);
+        // Nếu file trống → tạo user mặc định
+        if (users.isEmpty()) {
+            users.put("12345", "12345");
+            balances.put("12345", 5000.0);
             saveData();
         }
     }
 
-    // ------------------------- FILE I/O -------------------------
+    // ---------------------------------------------------------
+    // FILE I/O - STRING-BASED
+    // ---------------------------------------------------------
 
     private synchronized void saveData() {
-        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(FILE_PATH))) {
-            oos.writeObject(data);
+        try (PrintWriter pw = new PrintWriter(new FileWriter(FILE_PATH))) {
+            for (String user : users.keySet()) {
+                double bal = balances.getOrDefault(user, 0.0);
+                String pass = users.get(user);
+
+                pw.println(user + "|" + pass + "|" + bal);
+            }
         } catch (Exception e) {
-            System.out.println("Error saving file: " + e);
+            System.out.println("Error saving: " + e);
         }
     }
 
-    private BankData loadData() {
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_PATH))) {
-            return (BankData) ois.readObject();
+    private synchronized void loadData() {
+        users.clear();
+        balances.clear();
+
+        File f = new File(FILE_PATH);
+        if (!f.exists()) return; // file chưa tồn tại
+
+        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
+            String line;
+
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split("\\|");
+                if (parts.length == 3) {
+                    String user = parts[0];
+                    String pass = parts[1];
+                    double bal = Double.parseDouble(parts[2]);
+
+                    users.put(user, pass);
+                    balances.put(user, bal);
+                }
+            }
+
         } catch (Exception e) {
-            return new BankData(); // file chưa tồn tại
+            System.out.println("Error loading: " + e);
         }
     }
 
-    // ------------------------- LOGIC -------------------------
+    // ---------------------------------------------------------
+    // LOGIC
+    // ---------------------------------------------------------
 
     @Override
     public boolean register(String username, String password) throws RemoteException {
-        if (data.users.containsKey(username)) return false;
+        if (users.containsKey(username)) return false;
 
-        data.users.put(username, password);
-        data.balances.put(username, 0.0);
+        users.put(username, password);
+        balances.put(username, 0.0);
         saveData();
         return true;
     }
 
     @Override
     public boolean login(String username, String password) throws RemoteException {
-        return password.equals(data.users.get(username));
+        String pass = users.get(username);
+        return pass != null && pass.equals(password);
     }
 
     @Override
     public double getBalance(String username) throws RemoteException {
-        return data.balances.getOrDefault(username, 0.0);
+        return balances.getOrDefault(username, 0.0);
     }
 
     @Override
     public boolean deposit(String username, double amount) throws RemoteException {
-        data.balances.put(username, getBalance(username) + amount);
+        balances.put(username, getBalance(username) + amount);
         saveData();
         return true;
     }
@@ -77,27 +109,35 @@ public class BankImpl extends UnicastRemoteObject implements BankInterface {
         double bal = getBalance(username);
         if (bal < amount) return false;
 
-        data.balances.put(username, bal - amount);
+        balances.put(username, bal - amount);
         saveData();
         return true;
     }
 
     @Override
-    public boolean transfer(String fromUser, String toUser, double amount) throws RemoteException {
-        if (!data.users.containsKey(toUser)) return false;
+    public int transfer(String fromUser, String toUser, double amount) throws RemoteException {
 
-        if (withdraw(fromUser, amount)) {
-            deposit(toUser, amount);
-
-            // Callback tại client nhận tiền
-            ClientCallback cb = callbacks.get(toUser);
-            if (cb != null) cb.onReceiveTransfer(fromUser, amount);
-
-            saveData();
-            return true;
+        if (!users.containsKey(toUser)) {
+            return -1; // tài khoản không tồn tại
         }
-        return false;
+
+        double bal = balances.get(fromUser);
+        if (bal < amount) {
+            return -2; // số dư không đủ
+        }
+
+        // Thực hiện chuyển
+        balances.put(fromUser, bal - amount);
+        balances.put(toUser, balances.get(toUser) + amount);
+        saveData();
+
+        // thông báo realtime
+        ClientCallback cb = callbacks.get(toUser);
+        if (cb != null) cb.onReceiveTransfer(fromUser, amount);
+
+        return 1; // thành công
     }
+
 
     @Override
     public void registerCallback(String username, ClientCallback callback) throws RemoteException {

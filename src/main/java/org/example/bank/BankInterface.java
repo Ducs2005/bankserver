@@ -10,7 +10,7 @@ public interface BankInterface extends Remote {
     double getBalance(String username) throws RemoteException;
     boolean deposit(String username, double amount) throws RemoteException;
     boolean withdraw(String username, double amount) throws RemoteException;
-    boolean transfer(String fromUser, String toUser, double amount) throws RemoteException;
+    int transfer(String fromUser, String toUser, double amount) throws RemoteException;
 
     void registerCallback(String username, ClientCallback callback) throws RemoteException;
 }

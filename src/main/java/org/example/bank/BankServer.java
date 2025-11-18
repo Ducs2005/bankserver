@@ -6,19 +6,19 @@ import java.rmi.registry.LocateRegistry;
 public class BankServer {
     public static void main(String[] args) {
         try {
-            // 1️⃣ Tell RMI what IP to advertise to clients
-            System.setProperty("java.rmi.server.hostname", "192.168.1.19");
+            // IP thật của máy server (dùng ipconfig)
+            System.setProperty("java.rmi.server.hostname", "10.50.138.100");
 
-            // 2️⃣ Start registry on this machine (localhost)
+            // Start RMI Registry on port 1099
             LocateRegistry.createRegistry(1099);
 
-            // 3️⃣ Create your remote object
+            // Create remote object
             BankImpl bank = new BankImpl();
 
-            // 4️⃣ Bind service (IMPORTANT: No IP here)
-            Naming.rebind("BankService", bank);
+            // Bind service correctly
+            Naming.rebind("rmi://10.50.138.100/BankService", bank);
 
-            System.out.println("✅ Bank Server is running on 192.168.1.19:1099");
+            System.out.println("✅ Bank Server is running on rmi://10.50.138.100:1099/BankService");
         } catch (Exception e) {
             e.printStackTrace();
         }
